@@ -174,3 +174,28 @@ Append only. Never edit or delete another entry. Lead commits this file and mark
 - Recommendation: A (the default).
 - Fallback in progress: A is shipped.
 - Status: OPEN
+### D19: Federal bankruptcy status now says when the search was skipped, and the match step is indexed (bkfix, 2026-10-31) -- LEGAL REVIEW in PR title
+- Touches: bk_lookup.py (stay surface) and pipeline_alerts.py. Status file and alert only in commit 1; matching speed only in commit 2. No hold, verdict, clear rule, waiver, cache entry or budget cap changes. Root cause (docs/BK-CHECK-DIAGNOSIS.md): `match_filings_to_leads()` outran the 900 s deadline, so the per-lead search loop never ran and the status read `reason: ok, leads_checked: 0`.
+- Commit 1: when the deadline has passed before any lead is searched, the status reason is `time_budget` (other reasons keep their codes). Counts added to the status: leads still needing a search, leads searched this run, seconds in the match step, requests this run, consecutive starved runs. A failed pull records the HTTP status, the attempt count and a short label (http_error / rate_limited / network); the existing bounded backoff is unchanged. `bk-lookup` raises a warning after 3 starved runs in a row. Counts and codes only.
+- Commit 2: filings are indexed by name token so a lead is compared only with filings that share a token. Output must be identical to the full cross product; `_bkmatchindextest.py` compares the old and new matcher field by field.
+- Option A: ship both (recommended; Alex's earlier spec 4b asked for the status change) | Risk: any bug in the index could drop a match and so release a hold; the equality test and the 15 existing bk suites are the guard
+- Option B: ship commit 1 only | Risk: the nightly search stays starved (0 leads checked) until matching is fast
+- Recommendation: A. QA decides the merge.
+- Still open, not built: giving the search stage its own clock, and the free-tier cap (125/day) cannot keep ~4,200 leads on a 14-day cycle; the attorney waiver covers the remainder.
+- Status: DECIDED 2026-10-31: option A shipped. QA PASS on both commits (qa2); merged by the Lead under Alex's "QA decides" rule; Alex's own spec 4b asked for the status change.
+
+### D20: Complete-sheet-only leads do not count as an attempt in the funnel (Lead, 2026-10-31, from WIRING-MAP.md)
+- Touches: tracker_template.html _funnelStats / outcome_learn (display and counts only; no send, no suppression)
+- Today: a lead whose only record is hand-logged Complete-sheet touches ('src: manual') is not an attempt in _funnelStats and does not reach outcome_learn. By design: a hand log is not a dial or a conversation. Effect: hand-logged work under-counts.
+- Option A: count manual call/text/email touches as attempts but never as dials or conversations | Risk: small; the funnel's "attempts" figure rises
+- Option B: leave as is | Risk: Alex's own hand-logged work is invisible in the funnel
+- Recommendation: A, as a small board-dev fixer item after the refresh.
+- Status: OPEN
+
+### D21: Worker marks of unlisted kinds are lost when the tab closes; a failed DNC sweep inside /notes still answers ok (Lead, 2026-10-31, from WIRING-MAP.md; read from code only, not asserted by a test)
+- Touches: tracker_template.html marks buffer; send_server.py /notes (ledger_from_notes) = suppression-adjacent, report only
+- Today: only the kinds sent / callout / text / callq / done / skip / badnum survive; the marks replay empties its buffer after 1 s whether or not each mark was handled; ledger_from_notes failing inside /notes still returns ok:true (the nightly sweep catches it); the unload sendBeacon cannot carry the device key; callTextLedger swallows its own failures.
+- Option A: fix as separate fixer items (LEGAL REVIEW for the /notes part) | Risk: touches the notes path
+- Option B: leave; the nightly sweep and the buffer limits are the backstop | Risk: a hand mark or a ledger failure can be missed for a day
+- Recommendation: A for the ok:true-on-failure case first (it hides a failed do-not-contact write); the rest are low priority.
+- Status: OPEN
